@@ -23,7 +23,7 @@ const RIGHT = TapeDirection(true)
 
 ################################################################################
 
-export State, DEFAULT_STATE, HALT
+export State, DEFAULT_STATE, HALT, state_range
 
 struct State
     value::UInt8
@@ -31,6 +31,10 @@ end
 
 const DEFAULT_STATE = State(0x01)
 const HALT = State(0x00)
+
+function state_range(n::UInt8)
+    return Iterators.map(State, DEFAULT_STATE.value:n)
+end
 
 ################################################################################
 
@@ -70,7 +74,7 @@ const NULL_RULE = TransitionRule(0xFF)
 
 ################################################################################
 
-export TransitionTable
+export TransitionTable, set_rule, is_duplicate, distinct_states
 
 struct TransitionTable{N}
     data::NTuple{N,NTuple{2,TransitionRule}}
@@ -78,6 +82,50 @@ end
 
 function TransitionTable{N}() where {N}
     return TransitionTable{N}(ntuple(_ -> ntuple(_ -> NULL_RULE, 2), N))
+end
+
+function Base.getindex(table::TransitionTable{N}, state::State) where {N}
+    @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
+    return @inbounds table.data[state.value]
+end
+
+function set_rule(
+    table::TransitionTable{N}, symbol::TapeSymbol, state::State,
+    rule::TransitionRule
+) where {N}
+    @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
+    @assert HALT.value <= get_state(rule).value <= UInt8(N)
+    return TransitionTable{N}(Base.setindex(
+        table.data,
+        Base.setindex(table[state], rule, ifelse(symbol.value, 2, 1)),
+        state.value
+    ))
+end
+
+function is_duplicate(
+    table::TransitionTable{N}, state::State, special::State
+) where {N}
+    @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
+    @assert DEFAULT_STATE.value <= special.value <= UInt8(N)
+    for predecessor in state_range(state.value - 0x01)
+        if (predecessor != special) && (table[state] == table[predecessor])
+            return true
+        end
+    end
+    return false
+end
+
+function distinct_states(table::TransitionTable{N}, special::State) where {N}
+    @assert N < 64
+    @assert DEFAULT_STATE.value <= special.value <= UInt8(N)
+    result = zero(UInt64)
+    for state in state_range(UInt8(N))
+        if (state == special) || !is_duplicate(table, state, special)
+            println(state.value)
+            result |= one(UInt64) << state.value
+        end
+    end
+    return result
 end
 
 ################################################################################
@@ -108,10 +156,7 @@ function has_halted(tm::TuringMachine{N}) where {N}
 end
 
 function get_rule(tm::TuringMachine{N}) where {N}
-    table = tm.transition_table.data
-    state = tm.state[].value
-    @assert 1 <= state <= N
-    row = @inbounds table[state]
+    row = tm.transition_table[tm.state[]]
     return (tm.position[] in tm.tape) ? row[2] : row[1]
 end
 
