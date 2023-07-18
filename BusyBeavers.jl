@@ -167,6 +167,39 @@ function TuringMachine{N}(transition_table::TransitionTable{N}) where {N}
     )
 end
 
+function Base.:(==)(x::TuringMachine{N}, y::TuringMachine{N}) where {N}
+    if x.transition_table != y.transition_table
+        return false
+    end
+    if x.state[] != y.state[]
+        return false
+    end
+    if x.position[] != y.position[]
+        return false
+    end
+    if x.tape != y.tape
+        return false
+    end
+    return true
+end
+
+function Base.hash(tm::TuringMachine{N}, h::UInt) where {N}
+    h = hash(tm.transition_table, h)
+    h = hash(tm.state, h)
+    h = hash(tm.position, h)
+    h = hash(tm.tape, h)
+    return h
+end
+
+function Base.copy(tm::TuringMachine{N}) where {N}
+    return TuringMachine{N}(
+        tm.transition_table,
+        copy(tm.state),
+        copy(tm.position),
+        copy(tm.tape)
+    )
+end
+
 function get_rule(tm::TuringMachine{N}) where {N}
     row = tm.transition_table[tm.state[]]
     return (tm.position[] in tm.tape) ? row[2] : row[1]
@@ -262,8 +295,6 @@ function push_successors!(
             # TODO: Only consider halt transition if all states
             # (except possibly current state) are non-empty.
             push!(result, step!(set_rule(tm, HALT_RULE)))
-            # TODO: Only consider non-halting transitions from
-            # which an undefined or halt state is still reachable.
             states = distinct_states(tm.transition_table, tm.state[])
             push_successors!(result, tm, TapeSymbol(false), LEFT, states)
             push_successors!(result, tm, TapeSymbol(false), RIGHT, states)
