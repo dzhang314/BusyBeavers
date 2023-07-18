@@ -38,7 +38,8 @@ end
 
 ################################################################################
 
-export TransitionRule, get_symbol, get_direction, get_state, NULL_RULE
+export TransitionRule, get_symbol, get_direction, get_state,
+    NULL_RULE, HALT_RULE, INITIAL_RULE, can_halt
 
 struct TransitionRule
     data::UInt8
@@ -54,6 +55,7 @@ function TransitionRule(
     if direction.value
         data |= 0x40
     end
+    @assert state.value < 0x40
     data |= state.value
     return TransitionRule(data)
 end
@@ -71,6 +73,16 @@ function get_state(rule::TransitionRule)
 end
 
 const NULL_RULE = TransitionRule(0xFF)
+const HALT_RULE = TransitionRule(TapeSymbol(true), RIGHT, HALT)
+const INITIAL_RULE = TransitionRule(
+    TapeSymbol(true),
+    RIGHT,
+    State(DEFAULT_STATE.value + one(DEFAULT_STATE.value))
+)
+
+function can_halt(rule::TransitionRule)
+    return (rule == NULL_RULE) | (rule == HALT_RULE)
+end
 
 ################################################################################
 
@@ -97,7 +109,11 @@ function set_rule(
     @assert HALT.value <= get_state(rule).value <= UInt8(N)
     return TransitionTable{N}(Base.setindex(
         table.data,
-        Base.setindex(table[state], rule, ifelse(symbol.value, 2, 1)),
+        (
+            symbol.value ?
+            Base.setindex(table[state], rule, 2) :
+            Base.setindex(table[state], rule, 1)
+        ),
         state.value
     ))
 end
@@ -107,7 +123,7 @@ function is_duplicate(
 ) where {N}
     @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
     @assert DEFAULT_STATE.value <= special.value <= UInt8(N)
-    for predecessor in state_range(state.value - 0x01)
+    for predecessor in state_range(state.value - one(state.value))
         if (predecessor != special) && (table[state] == table[predecessor])
             return true
         end
@@ -121,7 +137,6 @@ function distinct_states(table::TransitionTable{N}, special::State) where {N}
     result = zero(UInt64)
     for state in state_range(UInt8(N))
         if (state == special) || !is_duplicate(table, state, special)
-            println(state.value)
             result |= one(UInt64) << state.value
         end
     end
@@ -130,7 +145,8 @@ end
 
 ################################################################################
 
-export TuringMachine, has_halted, has_transition, step!
+export TuringMachine, get_rule, set_rule, has_halted, has_transition, can_halt,
+    step!, push_successors!
 
 struct TuringMachine{N}
     transition_table::TransitionTable{N}
@@ -151,17 +167,58 @@ function TuringMachine{N}(transition_table::TransitionTable{N}) where {N}
     )
 end
 
-function has_halted(tm::TuringMachine{N}) where {N}
-    return tm.state[] == HALT
-end
-
 function get_rule(tm::TuringMachine{N}) where {N}
     row = tm.transition_table[tm.state[]]
     return (tm.position[] in tm.tape) ? row[2] : row[1]
 end
 
+function set_rule(tm::TuringMachine{N}, rule::TransitionRule) where {N}
+    @assert get_rule(tm) == NULL_RULE
+    @assert HALT.value <= get_state(rule).value <= UInt8(N)
+    return TuringMachine{N}(
+        set_rule(
+            tm.transition_table,
+            TapeSymbol(tm.position[] in tm.tape),
+            tm.state[],
+            rule
+        ),
+        copy(tm.state),
+        copy(tm.position),
+        copy(tm.tape)
+    )
+end
+
+function has_halted(tm::TuringMachine{N}) where {N}
+    return tm.state[] == HALT
+end
+
 function has_transition(tm::TuringMachine{N}) where {N}
     return get_rule(tm) != NULL_RULE
+end
+
+function can_halt(tm::TuringMachine{N}) where {N}
+    @assert N < 64
+    if has_halted(tm)
+        return true
+    end
+    seen = zero(UInt64)
+    stack = zero(UInt64)
+    stack |= one(UInt64) << tm.state[].value
+    while !iszero(stack)
+        next = trailing_zeros(stack)
+        bit = one(UInt64) << next
+        stack &= ~bit
+        if iszero(seen & bit)
+            row = tm.transition_table.data[next]
+            if can_halt(row[1]) | can_halt(row[2])
+                return true
+            end
+            seen |= bit
+            stack |= one(UInt64) << get_state(row[1]).value
+            stack |= one(UInt64) << get_state(row[2]).value
+        end
+    end
+    return false
 end
 
 function step!(tm::TuringMachine{N}) where {N}
@@ -170,12 +227,51 @@ function step!(tm::TuringMachine{N}) where {N}
     rule = get_rule(tm)
     Base._setint!(tm.tape, tm.position[], get_symbol(rule).value)
     if get_direction(rule).value
-        tm.position[] += 1
+        tm.position[] += one(eltype(tm.position))
     else
-        tm.position[] -= 1
+        tm.position[] -= one(eltype(tm.position))
     end
     tm.state[] = get_state(rule)
     return tm
+end
+
+function push_successors!(
+    result::Vector{TuringMachine{N}}, tm::TuringMachine{N},
+    symbol::TapeSymbol, direction::TapeDirection, states::UInt64
+) where {N}
+    while !iszero(states)
+        value = trailing_zeros(states)
+        @assert 1 <= value <= N
+        state = State(UInt8(value))
+        rule = TransitionRule(symbol, direction, state)
+        successor = step!(set_rule(tm, rule))
+        if can_halt(successor)
+            push!(result, successor)
+        end
+        states &= states - one(states)
+    end
+end
+
+function push_successors!(
+    result::Vector{TuringMachine{N}}, tm::TuringMachine{N}
+) where {N}
+    if !has_halted(tm)
+        if has_transition(tm)
+            push!(result, step!(tm))
+        else
+            # TODO: Only consider halt transition if all states
+            # (except possibly current state) are non-empty.
+            push!(result, step!(set_rule(tm, HALT_RULE)))
+            # TODO: Only consider non-halting transitions from
+            # which an undefined or halt state is still reachable.
+            states = distinct_states(tm.transition_table, tm.state[])
+            push_successors!(result, tm, TapeSymbol(false), LEFT, states)
+            push_successors!(result, tm, TapeSymbol(false), RIGHT, states)
+            push_successors!(result, tm, TapeSymbol(true), LEFT, states)
+            push_successors!(result, tm, TapeSymbol(true), RIGHT, states)
+        end
+    end
+    return result
 end
 
 ################################################################################
