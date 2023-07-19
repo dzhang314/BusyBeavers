@@ -96,25 +96,26 @@ function TransitionTable{N}() where {N}
     return TransitionTable{N}(ntuple(_ -> ntuple(_ -> NULL_RULE, 2), N))
 end
 
-function Base.getindex(table::TransitionTable{N}, state::State) where {N}
-    @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
+@inline function Base.getindex(
+    table::TransitionTable{N}, state::State
+) where {N}
+    # optimized, zero allocations, clean assembly
+    # @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
     return @inbounds table.data[state.value]
 end
 
-function set_rule(
+@inline function set_rule(
     table::TransitionTable{N}, symbol::TapeSymbol, state::State,
     rule::TransitionRule
 ) where {N}
-    @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
-    @assert HALT.value <= get_state(rule).value <= UInt8(N)
-    return TransitionTable{N}(Base.setindex(
-        table.data,
-        (
-            symbol.value ?
-            Base.setindex(table[state], rule, 2) :
-            Base.setindex(table[state], rule, 1)
-        ),
-        state.value
+    # optimized, zero allocations, clean assembly
+    # @assert DEFAULT_STATE.value <= state.value <= UInt8(N)
+    # @assert HALT.value <= get_state(rule).value <= UInt8(N)
+    a, b = table[state]
+    return TransitionTable{N}(Base._setindex(
+        symbol.value ? (a, rule) : (rule, b),
+        state.value,
+        table.data...
     ))
 end
 
@@ -183,11 +184,12 @@ function Base.:(==)(x::TuringMachine{N}, y::TuringMachine{N}) where {N}
     return true
 end
 
-function Base.hash(tm::TuringMachine{N}, h::UInt) where {N}
-    h = hash(tm.transition_table, h)
-    h = hash(tm.state, h)
-    h = hash(tm.position, h)
-    h = hash(tm.tape, h)
+@inline function Base.hash(tm::TuringMachine{N}, h::UInt) where {N}
+    # optimized, zero allocations, clean assembly
+    @inline h = hash(tm.transition_table, h)
+    @inline h = hash(tm.state[].value, h)
+    @inline h = hash(tm.position[], h)
+    @inline h = hash(tm.tape, h)
     return h
 end
 
@@ -242,7 +244,7 @@ function can_halt(tm::TuringMachine{N}) where {N}
         bit = one(UInt64) << next
         stack &= ~bit
         if iszero(seen & bit)
-            row = tm.transition_table.data[next]
+            row = @inbounds tm.transition_table.data[next]
             if can_halt(row[1]) | can_halt(row[2])
                 return true
             end
