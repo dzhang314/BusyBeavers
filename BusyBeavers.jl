@@ -45,31 +45,35 @@ struct TransitionRule
     data::UInt8
 end
 
+const SYMBOL_BIT::UInt8 = 0x80
+const DIRECTION_BIT::UInt8 = 0x40
+const STATE_MASK::UInt8 = 0x3F
+
 function TransitionRule(
     symbol::TapeSymbol, direction::TapeDirection, state::State
 )
-    data = UInt8(0x00)
+    data = zero(UInt8)
     if symbol.value
-        data |= 0x80
+        data |= SYMBOL_BIT
     end
     if direction.value
-        data |= 0x40
+        data |= DIRECTION_BIT
     end
-    @assert state.value < 0x40
+    @assert state.value <= STATE_MASK
     data |= state.value
     return TransitionRule(data)
 end
 
 function get_symbol(rule::TransitionRule)
-    return TapeSymbol((rule.data & 0x80) != 0x00)
+    return TapeSymbol(!iszero(rule.data & SYMBOL_BIT))
 end
 
 function get_direction(rule::TransitionRule)
-    return TapeDirection((rule.data & 0x40) != 0x00)
+    return TapeDirection(!iszero(rule.data & DIRECTION_BIT))
 end
 
 function get_state(rule::TransitionRule)
-    return State(rule.data & 0x3F)
+    return State(rule.data & STATE_MASK)
 end
 
 const NULL_RULE = TransitionRule(0xFF)
@@ -86,7 +90,7 @@ end
 
 ################################################################################
 
-export TransitionTable, set_rule, is_duplicate, distinct_states
+export TransitionTable, set_rule, to_string, is_duplicate, distinct_states
 
 struct TransitionTable{N}
     data::NTuple{N,NTuple{2,TransitionRule}}
@@ -119,6 +123,40 @@ end
     ))
 end
 
+function to_string(table::TransitionTable{N}) where {N}
+    result = Vector{UInt8}(undef, 6 * N)
+    for i = DEFAULT_STATE.value:UInt8(N)
+        a, b = table[State(i)]
+        if a == NULL_RULE
+            result[6*i-5] = UInt8('?')
+            result[6*i-4] = UInt8('?')
+            result[6*i-3] = UInt8('?')
+        else
+            result[6*i-5] = get_symbol(a).value ? UInt8('1') : UInt8('0')
+            result[6*i-4] = get_direction(a).value ? UInt8('R') : UInt8('L')
+            if get_state(a) == HALT
+                result[6*i-3] = 'H'
+            else
+                result[6*i-3] = UInt8('A' + get_state(a).value - 1)
+            end
+        end
+        if b == NULL_RULE
+            result[6*i-2] = UInt8('?')
+            result[6*i-1] = UInt8('?')
+            result[6*i-0] = UInt8('?')
+        else
+            result[6*i-2] = get_symbol(b).value ? UInt8('1') : UInt8('0')
+            result[6*i-1] = get_direction(b).value ? UInt8('R') : UInt8('L')
+            if get_state(b) == HALT
+                result[6*i-0] = 'H'
+            else
+                result[6*i-0] = UInt8('A' + get_state(b).value - 1)
+            end
+        end
+    end
+    return String(result)
+end
+
 function is_duplicate(
     table::TransitionTable{N}, state::State, special::State
 ) where {N}
@@ -142,6 +180,18 @@ function distinct_states(table::TransitionTable{N}, special::State) where {N}
         end
     end
     return result
+end
+
+function all_states_defined(table::TransitionTable{N}, special::State) where {N}
+    for state in state_range(UInt8(N))
+        if state != special
+            a, b = table[state]
+            if (a == NULL_RULE) && (b == NULL_RULE)
+                return false
+            end
+        end
+    end
+    return true
 end
 
 ################################################################################
@@ -295,9 +345,9 @@ function push_successors!(
         if has_transition(tm)
             push!(result, step!(tm))
         else
-            # TODO: Only consider halt transition if all states
-            # (except possibly current state) are non-empty.
-            push!(result, step!(set_rule(tm, HALT_RULE)))
+            if all_states_defined(tm.transition_table, tm.state[])
+                push!(result, step!(set_rule(tm, HALT_RULE)))
+            end
             states = distinct_states(tm.transition_table, tm.state[])
             push_successors!(result, tm, TapeSymbol(false), LEFT, states)
             push_successors!(result, tm, TapeSymbol(false), RIGHT, states)
