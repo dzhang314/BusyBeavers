@@ -80,7 +80,7 @@ const INITIAL_RULE = TransitionRule(
     State(DEFAULT_STATE.value + one(DEFAULT_STATE.value))
 )
 
-function can_halt(rule::TransitionRule)
+@inline function can_halt(rule::TransitionRule)
     return (rule == NULL_RULE) | (rule == HALT_RULE)
 end
 
@@ -231,8 +231,9 @@ function has_transition(tm::TuringMachine{N}) where {N}
     return get_rule(tm) != NULL_RULE
 end
 
-function can_halt(tm::TuringMachine{N}) where {N}
-    @assert N < 64
+@inline function can_halt(tm::TuringMachine{N}) where {N}
+    # optimized, zero allocations, clean assembly
+    # @assert N < 64
     if has_halted(tm)
         return true
     end
@@ -244,13 +245,13 @@ function can_halt(tm::TuringMachine{N}) where {N}
         bit = one(UInt64) << next
         stack &= ~bit
         if iszero(seen & bit)
-            row = @inbounds tm.transition_table.data[next]
-            if can_halt(row[1]) | can_halt(row[2])
+            a, b = @inbounds tm.transition_table.data[next]
+            if can_halt(a) | can_halt(b)
                 return true
             end
             seen |= bit
-            stack |= one(UInt64) << get_state(row[1]).value
-            stack |= one(UInt64) << get_state(row[2]).value
+            stack |= one(UInt64) << get_state(a).value
+            stack |= one(UInt64) << get_state(b).value
         end
     end
     return false
@@ -305,6 +306,50 @@ function push_successors!(
         end
     end
     return result
+end
+
+################################################################################
+
+export may_enter_cycle, enters_cycle
+
+function may_enter_cycle(tm::TuringMachine{N}, n::Int) where {N}
+    if has_halted(tm) || !has_transition(tm)
+        return false
+    end
+    tm_copy = copy(tm)
+    seen = Set{UInt}()
+    push!(seen, hash(tm_copy))
+    for _ = 1:n
+        step!(tm_copy)
+        if has_halted(tm_copy) || !has_transition(tm_copy)
+            return false
+        end
+        h = hash(tm_copy)
+        if h in seen
+            return true
+        else
+            push!(seen, h)
+        end
+    end
+    return false
+end
+
+function enters_cycle(tm::TuringMachine{N}, n::Int) where {N}
+    if !may_enter_cycle(tm, n)
+        return false
+    end
+    tm_copy = copy(tm)
+    seen = Set{TuringMachine{N}}()
+    push!(seen, copy(tm_copy))
+    for _ = 1:n
+        step!(tm_copy)
+        if tm_copy in seen
+            return true
+        else
+            push!(seen, copy(tm_copy))
+        end
+    end
+    return false
 end
 
 ################################################################################
