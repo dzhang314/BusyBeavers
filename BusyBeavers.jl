@@ -310,7 +310,7 @@ end
 
 ################################################################################
 
-export may_enter_cycle, enters_cycle
+export may_enter_cycle, enters_cycle, at_left_edge, at_right_edge
 
 function may_enter_cycle(tm::TuringMachine{N}, n::Int) where {N}
     if has_halted(tm) || !has_transition(tm)
@@ -350,6 +350,14 @@ function enters_cycle(tm::TuringMachine{N}, n::Int) where {N}
         end
     end
     return false
+end
+
+function at_left_edge(tm::TuringMachine{N}) where {N}
+    return isempty(tm.tape) || (tm.position[] < minimum(tm.tape))
+end
+
+function at_right_edge(tm::TuringMachine{N}) where {N}
+    return isempty(tm.tape) || (tm.position[] > maximum(tm.tape))
 end
 
 ################################################################################
