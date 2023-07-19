@@ -65,12 +65,22 @@ function main(::Val{N}) where {N}
                 successors = Vector{TuringMachine{N}}()
                 push_successors!(successors, tm)
                 if length(successors) > 1
-                    for (index, successor) in enumerate(successors)
-                        push!(labeled_successors, (
-                            push!(copy(label), index - 1),
-                            successor,
-                            num_steps + 1
-                        ))
+                    if has_halted(successors[1])
+                        for (index, successor) in enumerate(successors)
+                            push!(labeled_successors, (
+                                push!(copy(label), index - 1),
+                                successor,
+                                num_steps + 1
+                            ))
+                        end
+                    else
+                        for (index, successor) in enumerate(successors)
+                            push!(labeled_successors, (
+                                push!(copy(label), index),
+                                successor,
+                                num_steps + 1
+                            ))
+                        end
                     end
                 else
                     for (_, successor) in enumerate(successors)
