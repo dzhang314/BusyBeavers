@@ -360,6 +360,51 @@ end
 
 ################################################################################
 
+function TuringMachine{N}(indices::Vector{Int}) where {N}
+    @assert length(indices) >= 1
+    @assert (indices[1] == 0) || (indices[1] == 1)
+    result = TuringMachine(set_rule(
+        TransitionTable{N}(),
+        DEFAULT_SYMBOL,
+        DEFAULT_STATE,
+        TransitionRule(
+            TapeSymbol(!iszero(indices[1])),
+            RIGHT,
+            State(DEFAULT_STATE.value + one(DEFAULT_STATE.value))
+        )
+    ))
+    for i = 2:length(indices)
+        while true
+            while (!has_halted(result)) && has_transition(result)
+                step!(result)
+            end
+            @assert !has_halted(result)
+            successors = Vector{TuringMachine{N}}()
+            push_successors!(successors, result)
+            if length(successors) > 1
+                if has_halted(successors[1])
+                    @assert 1 <= indices[i] + 1 <= length(successors)
+                    result = successors[indices[i]+1]
+                else
+                    @assert 1 <= indices[i] <= length(successors)
+                    result = successors[indices[i]]
+                end
+                break
+            else
+                @assert !isempty(successors)
+                result = successors[1]
+            end
+        end
+    end
+    return result
+end
+
+function TuringMachine{N}(tag::AbstractString) where {N}
+    return TuringMachine{N}([parse(Int, part) for part in split(tag, '.')])
+end
+
+################################################################################
+
 export may_enter_cycle, enters_cycle, at_left_edge, at_right_edge
 
 function may_enter_cycle(tm::TuringMachine{N}, n::Int) where {N}
