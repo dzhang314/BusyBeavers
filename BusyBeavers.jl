@@ -373,6 +373,7 @@ function push_successors!(
         end
         states &= states - one(states)
     end
+    return result
 end
 
 function push_successors!(
