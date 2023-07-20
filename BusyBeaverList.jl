@@ -1,73 +1,118 @@
 push!(LOAD_PATH, @__DIR__)
 using BusyBeavers
 
-function main(::Val{N}, tag::Vector{Int}, n::Int) where {N}
-    @assert N > 1
-    labeled_machines = [(
-        tag,
-        TuringMachine{N}(TuringMachine{N}(tag).transition_table),
-        0
-    )]
-    for i = 0:n
-        println(
-            "Writing ", length(labeled_machines),
-            " Turing machines to file after $i steps."
-        )
-        filename = "BB$N-$(join(tag, '.'))-$(string(i; base=10, pad=8)).txt"
-        open(filename, "w+") do io
-            for (label, tm, num_steps) in labeled_machines
-                println(
-                    io,
-                    join(label, '.'),
-                    ' ',
-                    to_string(tm.transition_table),
-                    ' ',
-                    has_halted(tm) ? 'H' : 'R',
-                    ' ',
-                    num_steps
-                )
-            end
-        end
-        println("Computing step ", i + 1, ".")
-        labeled_successors = Vector{Tuple{Vector{Int},TuringMachine{N},Int}}()
-        for (label, tm, num_steps) in labeled_machines
-            if has_halted(tm)
-                push!(labeled_successors, (label, tm, num_steps))
-            else
-                successors = Vector{TuringMachine{N}}()
-                push_successors!(successors, tm)
-                if length(successors) > 1
-                    if has_halted(successors[1])
-                        for (index, successor) in enumerate(successors)
-                            push!(labeled_successors, (
-                                push!(copy(label), index - 1),
-                                successor,
-                                num_steps + 1
-                            ))
-                        end
-                    else
-                        for (index, successor) in enumerate(successors)
-                            push!(labeled_successors, (
-                                push!(copy(label), index),
-                                successor,
-                                num_steps + 1
-                            ))
-                        end
+
+struct MachineRecord{N}
+    tag::Vector{Int}
+    machine::TuringMachine{N}
+    num_steps::Int
+end
+
+
+function compute_successors(records::Vector{MachineRecord{N}}) where {N}
+    result = Vector{MachineRecord{N}}()
+    for record in records
+        if has_halted(record.machine)
+            push!(result, record)
+        else
+            successors = Vector{TuringMachine{N}}()
+            push_successors!(successors, record.machine)
+            if length(successors) > 1
+                if has_halted(successors[1])
+                    for (index, successor) in enumerate(successors)
+                        push!(result, MachineRecord{N}(
+                            push!(copy(record.tag), index - 1),
+                            successor,
+                            record.num_steps + 1
+                        ))
                     end
                 else
-                    for (_, successor) in enumerate(successors)
-                        push!(labeled_successors, (
-                            label,
+                    for (index, successor) in enumerate(successors)
+                        push!(result, MachineRecord{N}(
+                            push!(copy(record.tag), index),
                             successor,
-                            num_steps + 1
+                            record.num_steps + 1
                         ))
                     end
                 end
+            else
+                for (_, successor) in enumerate(successors)
+                    push!(result, MachineRecord{N}(
+                        record.tag,
+                        successor,
+                        record.num_steps + 1
+                    ))
+                end
             end
         end
-        labeled_machines = labeled_successors
+    end
+    return result
+end
+
+
+function write_machines_to_file(
+    tag::Vector{Int},
+    records::Vector{MachineRecord{N}},
+    chunk_size::Int, current_step::Int, final_step::Int
+) where {N}
+    println("Computing step $current_step for $(length(records)) Turing machines at tag $(join(tag, '.')).")
+    if current_step >= final_step
+        println("Writing $(length(records)) Turing machines to file after $current_step steps.")
+        filename = "BB$N-$(join(tag, '.'))-$(string(current_step; base=10, pad=8)).txt"
+        open(filename, "w+") do io
+            for record in records
+                println(io,
+                    join(record.tag, '.'),
+                    ' ',
+                    to_string(record.machine.transition_table),
+                    ' ',
+                    has_halted(record.machine) ? 'H' : 'R',
+                    ' ',
+                    record.num_steps
+                )
+            end
+        end
+        return nothing
+    else
+        successors = compute_successors(records)
+        if length(successors) <= chunk_size
+            return write_machines_to_file(tag, successors, chunk_size, current_step + 1, final_step)
+        else
+            tag_range = 1:length(tag)+1
+            tag_prefix = view(successors[1].tag, tag_range)
+            chunk = [successors[1]]
+            for i = 2:length(successors)
+                current_prefix = view(successors[i].tag, tag_range)
+                if current_prefix == tag_prefix
+                    push!(chunk, successors[i])
+                else
+                    write_machines_to_file(collect(tag_prefix), chunk, chunk_size, current_step + 1, final_step)
+                    tag_prefix = current_prefix
+                    chunk = [successors[i]]
+                end
+            end
+            write_machines_to_file(collect(tag_prefix), chunk, chunk_size, current_step + 1, final_step)
+            return nothing
+        end
     end
 end
+
+
+function main(::Val{N}, tag::Vector{Int}, n::Int) where {N}
+    write_machines_to_file(
+        tag,
+        [MachineRecord{N}(
+            tag,
+            TuringMachine{N}(TuringMachine{N}(tag).transition_table),
+            0
+        )],
+        999999,
+        0,
+        n
+    )
+    return nothing
+end
+
 
 main(
     Val{parse(Int, ARGS[1])}(),

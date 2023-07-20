@@ -399,6 +399,7 @@ end
 ################################################################################
 
 function TuringMachine{N}(indices::Vector{Int}) where {N}
+    @assert N > 1
     @assert length(indices) >= 1
     @assert (indices[1] == 0) || (indices[1] == 1)
     result = TuringMachine(set_rule(

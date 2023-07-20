@@ -13,7 +13,6 @@ function thread_view(v::Vector{T}, i::Int) where {T}
 end
 
 function main(::Val{N}, tag::Vector{Int}, n::Int) where {N}
-    @assert N > 1
     labeled_machines = [(
         tag,
         TuringMachine{N}(TuringMachine{N}(tag).transition_table),
