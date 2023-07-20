@@ -90,7 +90,8 @@ end
 
 ################################################################################
 
-export TransitionTable, set_rule, to_string, is_duplicate, distinct_states
+export TransitionTable, set_rule, has_rule, count_rule, replace_rule,
+    to_string, is_duplicate, distinct_states
 
 struct TransitionTable{N}
     data::NTuple{N,NTuple{2,TransitionRule}}
@@ -120,6 +121,42 @@ end
         symbol.value ? (a, rule) : (rule, b),
         state.value,
         table.data...
+    ))
+end
+
+function has_rule(table::TransitionTable{N}, rule::TransitionRule) where {N}
+    for state in state_range(UInt8(N))
+        a, b = table[state]
+        if (a == rule) | (b == rule)
+            return true
+        end
+    end
+    return false
+end
+
+function count_rule(table::TransitionTable{N}, rule::TransitionRule) where {N}
+    result = 0
+    for state in state_range(UInt8(N))
+        a, b = table[state]
+        if a == rule
+            result += 1
+        end
+        if b == rule
+            result += 1
+        end
+    end
+    return result
+end
+
+function replace_rule(
+    table::TransitionTable{N}, old::TransitionRule, new::TransitionRule
+) where {N}
+    return TransitionTable{N}(ntuple(
+        i -> ntuple(
+            j -> ifelse(table.data[i][j] == old, new, table.data[i][j]),
+            2
+        ),
+        N
     ))
 end
 
@@ -396,7 +433,17 @@ function TuringMachine{N}(indices::Vector{Int}) where {N}
             end
         end
     end
-    return result
+    table = result.transition_table
+    if (!has_rule(table, HALT_RULE)) && (count_rule(table, NULL_RULE) == 1)
+        return TuringMachine{N}(
+            replace_rule(table, NULL_RULE, HALT_RULE),
+            result.state,
+            result.position,
+            result.tape
+        )
+    else
+        return result
+    end
 end
 
 function TuringMachine{N}(tag::AbstractString) where {N}
@@ -405,54 +452,27 @@ end
 
 ################################################################################
 
-export may_enter_cycle, enters_cycle, at_left_edge, at_right_edge
+export tape_window, in_cycle
 
-function may_enter_cycle(tm::TuringMachine{N}, n::Int) where {N}
-    if has_halted(tm) || !has_transition(tm)
-        return false
-    end
-    tm_copy = copy(tm)
-    seen = Set{UInt}()
-    push!(seen, hash(tm_copy))
+function tape_window(tm::TuringMachine{N}, n::Int) where {N}
+    return BitSet(
+        i - tm.position[]
+        for i in tm.tape
+        if abs(i - tm.position[]) <= n
+    )
+end
+
+function in_cycle(
+    table::TransitionTable{N}, state::State, window::BitSet, n::Int
+) where {N}
+    tm = TuringMachine{N}(table, fill(state), fill(0), copy(window))
     for _ = 1:n
-        step!(tm_copy)
-        if has_halted(tm_copy) || !has_transition(tm_copy)
+        if has_halted(tm) || !has_transition(tm)
             return false
         end
-        h = hash(tm_copy)
-        if h in seen
-            return true
-        else
-            push!(seen, h)
-        end
+        step!(tm)
     end
-    return false
-end
-
-function enters_cycle(tm::TuringMachine{N}, n::Int) where {N}
-    if !may_enter_cycle(tm, n)
-        return false
-    end
-    tm_copy = copy(tm)
-    seen = Set{TuringMachine{N}}()
-    push!(seen, copy(tm_copy))
-    for _ = 1:n
-        step!(tm_copy)
-        if tm_copy in seen
-            return true
-        else
-            push!(seen, copy(tm_copy))
-        end
-    end
-    return false
-end
-
-function at_left_edge(tm::TuringMachine{N}) where {N}
-    return isempty(tm.tape) || (tm.position[] < minimum(tm.tape))
-end
-
-function at_right_edge(tm::TuringMachine{N}) where {N}
-    return isempty(tm.tape) || (tm.position[] > maximum(tm.tape))
+    return (state == tm.state[]) && (window == tape_window(tm, n))
 end
 
 ################################################################################
