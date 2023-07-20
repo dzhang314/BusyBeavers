@@ -19,11 +19,11 @@ function main(::Val{N}, tag::Vector{Int}, n::Int) where {N}
                 println(
                     io,
                     join(label, '.'),
-                    " ",
+                    ' ',
                     to_string(tm.transition_table),
-                    " ",
-                    has_halted(tm) ? "H" : "R",
-                    " ",
+                    ' ',
+                    has_halted(tm) ? 'H' : 'R',
+                    ' ',
                     num_steps
                 )
             end
