@@ -55,9 +55,11 @@ function write_machines_to_file(
     records::Vector{MachineRecord{N}},
     chunk_size::Int, current_step::Int, final_step::Int
 ) where {N}
-    println("Computing step $current_step for $(length(records)) Turing machines at tag $(join(tag, '.')).")
+    if (length(records) > 1) && (current_step % 100 == 0)
+        println("Computing step $current_step for $(length(records)) Turing machines at tag $(join(tag, '.')).")
+    end
     if current_step >= final_step
-        println("Writing $(length(records)) Turing machines to file after $current_step steps.")
+        println("Writing $(length(records)) Turing machines to file at tag $(join(tag, '.')) after $current_step steps.")
         filename = "BB$N-$(join(tag, '.'))-$(string(current_step; base=10, pad=8)).txt"
         open(filename, "w+") do io
             for record in records
@@ -106,7 +108,7 @@ function main(::Val{N}, tag::Vector{Int}, n::Int) where {N}
             TuringMachine{N}(TuringMachine{N}(tag).transition_table),
             0
         )],
-        999999,
+        99999,
         0,
         n
     )
