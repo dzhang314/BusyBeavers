@@ -1,6 +1,6 @@
 module BusyBeavers
 
-################################################################################
+######################################################################## SYMBOLS
 
 export TapeSymbol, DEFAULT_SYMBOL
 
@@ -10,7 +10,7 @@ end
 
 const DEFAULT_SYMBOL = TapeSymbol(false)
 
-################################################################################
+##################################################################### DIRECTIONS
 
 export TapeDirection, LEFT, RIGHT
 
@@ -21,7 +21,7 @@ end
 const LEFT = TapeDirection(false)
 const RIGHT = TapeDirection(true)
 
-################################################################################
+######################################################################### STATES
 
 export State, DEFAULT_STATE, HALT, state_range
 
@@ -36,10 +36,10 @@ function state_range(n::UInt8)
     return Iterators.map(State, DEFAULT_STATE.value:n)
 end
 
-################################################################################
+############################################################### TRANSITION RULES
 
 export TransitionRule, get_symbol, get_direction, get_state,
-    NULL_RULE, HALT_RULE, INITIAL_RULE, can_halt
+    NULL_RULE, HALT_RULE, INITIAL_RULE
 
 struct TransitionRule
     data::UInt8
@@ -84,21 +84,18 @@ const INITIAL_RULE = TransitionRule(
     State(DEFAULT_STATE.value + one(DEFAULT_STATE.value))
 )
 
-@inline function can_halt(rule::TransitionRule)
-    return (rule == NULL_RULE) | (rule == HALT_RULE)
-end
+############################################################## TRANSITION TABLES
 
-################################################################################
-
-export TransitionTable, set_rule, has_rule, count_rule, replace_rule,
-    to_string, is_duplicate, distinct_states
+export TransitionTable, set_rule, to_string
 
 struct TransitionTable{N}
     data::NTuple{N,NTuple{2,TransitionRule}}
 end
 
 function TransitionTable{N}() where {N}
-    return TransitionTable{N}(ntuple(_ -> ntuple(_ -> NULL_RULE, 2), N))
+    return TransitionTable{N}(
+        ntuple(_ -> ntuple(_ -> NULL_RULE, Val{2}()), Val{N}())
+    )
 end
 
 @inline function Base.getindex(
@@ -121,42 +118,6 @@ end
         symbol.value ? (a, rule) : (rule, b),
         state.value,
         table.data...
-    ))
-end
-
-function has_rule(table::TransitionTable{N}, rule::TransitionRule) where {N}
-    for state in state_range(UInt8(N))
-        a, b = table[state]
-        if (a == rule) | (b == rule)
-            return true
-        end
-    end
-    return false
-end
-
-function count_rule(table::TransitionTable{N}, rule::TransitionRule) where {N}
-    result = 0
-    for state in state_range(UInt8(N))
-        a, b = table[state]
-        if a == rule
-            result += 1
-        end
-        if b == rule
-            result += 1
-        end
-    end
-    return result
-end
-
-function replace_rule(
-    table::TransitionTable{N}, old::TransitionRule, new::TransitionRule
-) where {N}
-    return TransitionTable{N}(ntuple(
-        i -> ntuple(
-            j -> ifelse(table.data[i][j] == old, new, table.data[i][j]),
-            2
-        ),
-        N
     ))
 end
 
@@ -192,6 +153,44 @@ function to_string(table::TransitionTable{N}) where {N}
         end
     end
     return String(result)
+end
+
+################################################################################
+
+function has_rule(table::TransitionTable{N}, rule::TransitionRule) where {N}
+    for state in state_range(UInt8(N))
+        a, b = table[state]
+        if (a == rule) | (b == rule)
+            return true
+        end
+    end
+    return false
+end
+
+function count_rule(table::TransitionTable{N}, rule::TransitionRule) where {N}
+    result = 0
+    for state in state_range(UInt8(N))
+        a, b = table[state]
+        if a == rule
+            result += 1
+        end
+        if b == rule
+            result += 1
+        end
+    end
+    return result
+end
+
+function replace_rule(
+    table::TransitionTable{N}, old::TransitionRule, new::TransitionRule
+) where {N}
+    return TransitionTable{N}(ntuple(
+        i -> ntuple(
+            j -> ifelse(table.data[i][j] == old, new, table.data[i][j]),
+            Val{2}()
+        ),
+        Val{N}()
+    ))
 end
 
 function is_duplicate(
@@ -316,6 +315,10 @@ end
 
 function has_transition(tm::TuringMachine{N}) where {N}
     return get_rule(tm) != NULL_RULE
+end
+
+@inline function can_halt(rule::TransitionRule)
+    return (rule == NULL_RULE) | (rule == HALT_RULE)
 end
 
 @inline function can_halt(tm::TuringMachine{N}) where {N}
